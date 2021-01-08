@@ -1,7 +1,8 @@
 import "./Ownable.sol";
 pragma solidity 0.5.12;
+import "github.com/provable-things/ethereum-api/provableAPI.sol";
 
-contract Coinflip is Ownable{
+contract Coinflip is Ownable, usingProvable{
 
     string message = "HelloWorld";
     uint public balance;
@@ -9,12 +10,26 @@ contract Coinflip is Ownable{
     bool public result = false;
     mapping(address => uint) public playerBalance;
     mapping(address => Player) private playerRecord;
-
+    
     struct Player {                                       
         uint balance;     
         uint countWin;                                
         uint countLoss;                                    
     }
+
+    // Oracle
+    
+    struct Bet {
+        address walletAddress;
+        bool predictCoinSide;
+        uint value;
+    }
+    
+    uint256 constant MAX_INT_FROM_BYTE = 256;
+    uint256 constant NUM_RANDOM_BYTES_REQUESTED = 1;
+    uint256 public latestNumber;
+    
+    mapping(bytes32 => Bet) public bets;
     
     // events
     //event SetBalance(address indexed user, uint256 balance);
@@ -23,6 +38,8 @@ contract Coinflip is Ownable{
     event WithdrawAllFromContract(address indexed user, uint256 amount, uint256 balance);
     event DepositToPlayer(address indexed user, uint256 amount, uint256 balance);
     event WithdrawFromPlayer(address indexed user, uint256 amount, uint256 balance);
+    event logNewProvableQuery(string description);
+    event generateRandomNumber(address player, bool result);
     
     constructor() payable public {
         owner = msg.sender;
@@ -34,6 +51,61 @@ contract Coinflip is Ownable{
         _;
     }
 
+    function testRandom() public returns(bytes32) {
+        bytes32 queryId = bytes32(keccak256("test"));
+        __callback(queryId,"1",bytes("test"));
+        return queryId;
+    }
+    
+    function playFlipCoin2(bool coinSide) public payable {
+        uint256 QUERY_EXECUTION_DELAY = 0;
+        uint256 GAS_FOR_CALLBACK = 200000;
+        bytes32 queryId = testRandom();
+        /*
+        bytes32 queryId = provable_newRandomDSQuery(
+            QUERY_EXECUTION_DELAY,
+            NUM_RANDOM_BYTES_REQUESTED,
+            GAS_FOR_CALLBACK
+        );*/
+        emit logNewProvableQuery("provable query was sent, standing by the answer...");
+        Bet memory newBet = Bet(msg.sender, coinSide, msg.value);
+        bets[queryId] = newBet;        
+    }
+    
+    function __callback(bytes32 _queryId,string memory _result,bytes memory _proof) public {
+        
+        require(msg.sender == provable_cbAddress());
+        bool flip;
+        
+        uint256 randomNumber = uint256(keccak256(abi.encodePacked(_result))) % 2;
+        if (randomNumber == 0) {
+            flip = true;
+        } else {
+            flip = false;
+        }
+        emit generateRandomNumber(bets[_queryId].walletAddress, flip);
+
+        if (bets[_queryId].predictCoinSide == flip) {
+            transferToPlayer(msg.sender,value);
+            //balance -= value;
+            //playerBalance[msg.sender] += value;             
+            
+            playerRecord[msg.sender].balance = playerBalance[msg.sender];
+            playerRecord[msg.sender].countWin += 1;
+        } else {
+            
+            transferToContract(msg.sender,value);
+            //balance += value;
+            //playerBalance[player] -= value;
+            
+            playerRecord[msg.sender].balance = playerBalance[msg.sender];
+            playerRecord[msg.sender].countLoss += 1;            
+        }
+
+        //delete bet from mapping
+        delete(bets[_queryId]);        
+    }
+    
     function flip() private view returns(bool) {
         if(now % 2 == 0){
             return false;
