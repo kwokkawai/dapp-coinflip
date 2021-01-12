@@ -2,7 +2,7 @@ import "./Ownable.sol";
 pragma solidity 0.5.12;
 import "github.com/provable-things/ethereum-api/provableAPI.sol";
 
-contract Coinflip is Ownable, usingProvable{
+contract Coinflip2 is Ownable, usingProvable{
 
     string message = "HelloWorld";
     uint public balance;
@@ -23,8 +23,10 @@ contract Coinflip is Ownable, usingProvable{
         address walletAddress;
         bool predictCoinSide;
         uint value;
+        bool resultCoinside;
     }
     
+    bool flipresult; 
     uint256 constant MAX_INT_FROM_BYTE = 256;
     uint256 constant NUM_RANDOM_BYTES_REQUESTED = 1;
     uint256 public latestNumber;
@@ -57,10 +59,11 @@ contract Coinflip is Ownable, usingProvable{
         return queryId;
     }
     
-    function playFlipCoin2(bool coinSide) public payable {
+    function playFlipCoin2(bool coinSide, uint value) public {
+        message = "Start playFlipCoin2";
         uint256 QUERY_EXECUTION_DELAY = 0;
         uint256 GAS_FOR_CALLBACK = 200000;
-        bytes32 queryId = testRandom();
+        bytes32 queryId = testRandom();        
         /*
         bytes32 queryId = provable_newRandomDSQuery(
             QUERY_EXECUTION_DELAY,
@@ -68,42 +71,35 @@ contract Coinflip is Ownable, usingProvable{
             GAS_FOR_CALLBACK
         );*/
         emit logNewProvableQuery("provable query was sent, standing by the answer...");
-        Bet memory newBet = Bet(msg.sender, coinSide, msg.value);
-        bets[queryId] = newBet;        
+
+        Bet memory newBet = Bet(msg.sender, coinSide, value, flipresult);
+        bets[queryId] = newBet;
+        
+        if (bets[queryId].resultCoinside == bets[queryId].predictCoinSide) {
+            transferToPlayer(msg.sender,bets[queryId].value);
+            playerRecord[msg.sender].balance = playerBalance[msg.sender];
+            playerRecord[msg.sender].countWin += 1;
+        } else {
+            transferToContract(msg.sender,bets[queryId].value);
+            playerRecord[msg.sender].balance = playerBalance[msg.sender];
+            playerRecord[msg.sender].countLoss += 1;            
+        }
+        emit generateRandomNumber(bets[_queryId].walletAddress, bets[queryId].resultCoinside);
+
+        //delete bet from mapping
+        delete(bets[_queryId]);         
     }
     
     function __callback(bytes32 _queryId,string memory _result,bytes memory _proof) public {
         
         require(msg.sender == provable_cbAddress());
-        bool flip;
         
         uint256 randomNumber = uint256(keccak256(abi.encodePacked(_result))) % 2;
         if (randomNumber == 0) {
-            flip = true;
+            flipresult = true;
         } else {
-            flip = false;
+            flipresult = false;
         }
-        emit generateRandomNumber(bets[_queryId].walletAddress, flip);
-
-        if (bets[_queryId].predictCoinSide == flip) {
-            transferToPlayer(msg.sender,value);
-            //balance -= value;
-            //playerBalance[msg.sender] += value;             
-            
-            playerRecord[msg.sender].balance = playerBalance[msg.sender];
-            playerRecord[msg.sender].countWin += 1;
-        } else {
-            
-            transferToContract(msg.sender,value);
-            //balance += value;
-            //playerBalance[player] -= value;
-            
-            playerRecord[msg.sender].balance = playerBalance[msg.sender];
-            playerRecord[msg.sender].countLoss += 1;            
-        }
-
-        //delete bet from mapping
-        delete(bets[_queryId]);        
     }
     
     function flip() private view returns(bool) {
@@ -172,13 +168,13 @@ contract Coinflip is Ownable, usingProvable{
     }
 
     // transfer fund from contract balance to player
-    function transferToPlayer(address payable player, uint value) private {
+    function transferToPlayer(address payable player, uint value) public {
         balance -= value;
         playerBalance[player] += value; 
     }
 
     // tranfer fund from player to contract balance
-    function transferToContract(address payable player, uint value) private {
+    function transferToContract(address payable player, uint value) public {
         balance += value;
         playerBalance[player] -= value;
     }
